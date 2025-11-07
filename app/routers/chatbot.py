@@ -1,13 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.config.database import get_db
 from app.models.customer import Customer
-from app.services.gemini_service import GeminiService
-from pydantic import BaseModel
-from typing import Optional
-import logging
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chatbot", tags=["AI Chatbot"])
 
@@ -19,41 +14,24 @@ class ChatResponse(BaseModel):
     response: str
     success: bool
 
+# Predefined Q&A mapping
+PREDEFINED_QA = {
+    "Why is my service blocked?": "Your service is blocked because your account has an overdue balance. Please pay the outstanding amount to restore your service.",
+    "Why is my data speed restricted?": "Your data speed is restricted due to an unpaid bill. Once the payment is made, your data speed will be restored.",
+    "When is my payment due?": "You can view your payment due date on your dashboard. Please pay before the due date to avoid service restrictions.",
+    "How much do I owe?": "Please check your account dashboard for the current outstanding balance.",
+    "How to restore my service?": "To restore your service, please pay any overdue bills. Your account will be updated once payment is confirmed.",
+    "What does account status mean?": "Your account status reflects your payment and usage activity. ACTIVE means your account is in good standing. RESTRICTED or BARRED means action is needed.",
+    # Add more Q&A pairs as needed
+}
+
 @router.post("/query", response_model=ChatResponse)
-def chat_query(request: ChatRequest, db: Session = Depends(get_db)):
-    """
-    AI-powered customer query assistant using Gemini
-    """
-    try:
-        # Get customer data
-        customer = db.query(Customer).filter(Customer.id == request.customer_id).first()
-        if not customer:
-            raise HTTPException(status_code=404, detail="Customer not found")
-        
-        # Build context
-        customer_context = {
-            'dunning_status': customer.dunning_status,
-            'overdue_days': customer.overdue_days,
-            'outstanding_amount': float(customer.outstanding_amount),
-            'customer_type': customer.customer_type,
-            'plan_type': customer.plan_type,
-        }
-        
-        # Generate AI response
-        gemini_service = GeminiService()
-        ai_response = gemini_service.generate_customer_response(
-            query=request.message,
-            customer_context=customer_context
-        )
-        
-        logger.info(f"Chatbot response for customer {request.customer_id}: {ai_response[:100]}")
-        
-        return ChatResponse(
-            response=ai_response,
-            success=True
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Chatbot error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
+def chatbot_query(request: ChatRequest, db: Session = Depends(get_db)):
+    question = request.message.strip()
+    answer = PREDEFINED_QA.get(question)
+
+    # Fallback to generic response if question not found
+    if not answer:
+        answer = "I'm sorry, I did not understand your question. Please ask about your service, payment, or account status."
+
+    return ChatResponse(response=answer, success=True)
